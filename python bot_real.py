@@ -39,7 +39,6 @@ TP_TARGET          = 100
 MAX_HOLD_SECONDS   = 3600
 TOKEN_COOLDOWN     = 7200
 GAS_FEE            = 0.01
-MAX_TOP_HOLDER_PCT = 15
 
 # ============================================================
 # MEMORY
@@ -356,57 +355,6 @@ def goplus_check(token):
         return {}
 
 # ============================================================
-# TOP HOLDER CHECK — REAL IMPLEMENTATION
-# ============================================================
-
-def check_top_holder(token):
-    """
-    Helius RPC se top token holders check karo
-    Agar koi ek holder 15% se zyada rakhe toh fail
-    """
-    try:
-        r = session.post(
-            RPC_URL,
-            json={
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "getTokenLargestAccounts",
-                "params": [token]
-            },
-            timeout=10
-        )
-        result = r.json().get("result", {}).get("value", [])
-        if not result:
-            return True, 0  # data nahi mila — pass kar do
-
-        # Total supply nikalo
-        supply_r = session.post(
-            RPC_URL,
-            json={
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "getTokenSupply",
-                "params": [token]
-            },
-            timeout=10
-        )
-        supply_data = supply_r.json().get("result", {}).get("value", {})
-        total_supply = float(supply_data.get("amount", 0))
-
-        if total_supply <= 0:
-            return True, 0
-
-        # Top holder percentage check
-        top_amount     = float(result[0].get("amount", 0))
-        top_holder_pct = (top_amount / total_supply) * 100
-
-        is_safe = top_holder_pct <= MAX_TOP_HOLDER_PCT
-        return is_safe, round(top_holder_pct, 1)
-
-    except:
-        return True, 0  # error pe pass kar do
-
-# ============================================================
 # LP LOCK CHECK — REAL IMPLEMENTATION
 # ============================================================
 
@@ -480,10 +428,8 @@ def security_check(token, pair):
         "mint_disabled":   False,
         "freeze_disabled": False,
         "lp_locked":       False,
-        "top_holder_ok":   False,
         "sell_tax":        0,
         "buy_tax":         0,
-        "top_holder_pct":  0,
         "lp_info":         "",
     }
     passed = 0
@@ -540,17 +486,7 @@ def security_check(token, pair):
     except:
         pass
 
-    # ── 4. Top holder check ──
-    try:
-        holder_ok, holder_pct        = check_top_holder(token)
-        results["top_holder_ok"]     = holder_ok
-        results["top_holder_pct"]    = holder_pct
-        if holder_ok:
-            passed += 1
-    except:
-        pass
-
-    # ── 5. Real tax check ──
+    # ── 4. Real tax check ──
     try:
         buy_tax, sell_tax      = check_tax(token)
         results["buy_tax"]     = buy_tax
@@ -576,13 +512,6 @@ def print_security(results):
         print(green(f"  ✓ LP locked / burned  ({results['lp_info']})"))
     else:
         print(red(f"  ✗ LP NOT locked       ({results['lp_info']})"))
-
-    if results["top_holder_pct"] > 0:
-        fn = green if results["top_holder_ok"] else red
-        ic = "✓" if results["top_holder_ok"] else "✗"
-        print(fn(f"  {ic} Top holder: {results['top_holder_pct']}%  (limit: {MAX_TOP_HOLDER_PCT}%)"))
-    else:
-        print(gray("  ~ Top holder: data unavailable"))
 
     if results["buy_tax"] > 0 or results["sell_tax"] > 0:
         tax_fn = red if (results["buy_tax"] > 5 or results["sell_tax"] > 5) else yellow
@@ -987,7 +916,6 @@ def main():
     print(f"  MAX_HOLD_SECONDS   = {MAX_HOLD_SECONDS}")
     print(f"  MAX_OPEN_POSITIONS = {MAX_OPEN_POSITIONS}")
     print(f"  TOKEN_COOLDOWN     = {TOKEN_COOLDOWN}")
-    print(f"  MAX_TOP_HOLDER_PCT = {MAX_TOP_HOLDER_PCT}")
     print(bold(cyan("  ===============================")))
     print()
 
